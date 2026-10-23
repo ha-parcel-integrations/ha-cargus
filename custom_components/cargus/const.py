@@ -49,34 +49,23 @@ KNOWN_CAPABILITIES = frozenset(
 #   "pickup_point"       parcel["pickup_point"] is ever non-null (beyond the "pickup" bool)
 #   "url"                parcel["url"] is ever non-null
 #   "history"            the include_history option is implemented and does something
-CAPABILITIES = frozenset({"url", "history"})
+CAPABILITIES_BY_VARIANT = {
+    "Tracking": frozenset({"url", "history"}),
+    "Account": frozenset({"url", "history"}),
+}
+CAPABILITIES = CAPABILITIES_BY_VARIANT["Tracking"]
 
 # Fields whose support is not confirmed yet — typically a carrier built without
-# a real parcel to check against. Leave this empty once the open questions are
-# answered. A field is in exactly one of three states: in CAPABILITIES (seen
-# populated), in PENDING_CAPABILITIES (docs site shows "awaiting data"), or in
-# neither (the API never exposes it). Pending fields must still come back as a
-# literal ``None`` from normalize_parcel() until they are confirmed and moved
-# into CAPABILITIES. A multi-backend carrier declares
-# PENDING_CAPABILITIES_BY_VARIANT with the same keys as its
-# CAPABILITIES_BY_VARIANT instead (omit backends with nothing pending).
-PENDING_CAPABILITIES: frozenset[str] = frozenset({"pickup_point"})
-
-# If this carrier ever grows a second backend with a genuinely different
-# payload shape (a country-specific API, not just a config option), replace
-# the single CAPABILITIES above with a CAPABILITIES_BY_VARIANT dict instead:
-#
-#   CAPABILITIES_BY_VARIANT = {
-#       "Germany": frozenset({"pickup_point", "url", "history"}),
-#       "Other": frozenset({"weight", "dimensions", "delivery_window",
-#                            "pickup_point", "url", "history"}),
-#   }
-#
-# Key order is display order on the docs site's comparison table; label each
-# key exactly as the carrier's own country/backend selector does. The docs
-# site's generator accepts either shape — don't declare both. Do not add this
-# preemptively: a single-backend carrier (the common case) keeps the flat
-# CAPABILITIES above.
+# a real parcel to check against. A field is in exactly one of three states: in
+# CAPABILITIES_BY_VARIANT (seen populated), here (docs site shows "awaiting
+# data"), or in neither (the API never exposes it). The account's delivery
+# window is read from the inbox's arrival times, so far only seen empty on
+# delivered parcels.
+PENDING_CAPABILITIES_BY_VARIANT = {
+    "Tracking": frozenset({"pickup_point"}),
+    "Account": frozenset({"pickup_point", "delivery_window"}),
+}
+PENDING_CAPABILITIES = PENDING_CAPABILITIES_BY_VARIANT["Tracking"]
 
 # ``TRACKING_API_URL`` is polled with fresh request headers each time;
 # ``TRACKING_URL`` is the human-facing deep link surfaced on each parcel's
@@ -88,6 +77,20 @@ TRACKING_API_URL = (
 TRACKING_URL = (
     "https://www.cargus.ro/personal/urmareste-coletul/?tracking_number={tracking_code}"
 )
+
+# An entry is either a tracking hub (codes the user enters) or a MyCargus
+# account (parcels discovered from the account inbox). Entries created before
+# the account source existed carry no source and are tracking hubs.
+CONF_SOURCE = "source"
+SOURCE_TRACKING = "tracking"
+SOURCE_ACCOUNT = "account"
+
+CONF_EMAIL = "email"
+CONF_PASSWORD = "password"
+CONF_PHONE = "phone"
+CONF_ACCESS_TOKEN = "access_token"
+CONF_REFRESH_TOKEN = "refresh_token"
+CONF_TOKEN_EXPIRES_AT = "token_expires_at"
 
 # Tracked parcels live in the config entry options as a list of
 # ``{tracking_code}`` dicts — this carrier has no account or parcel feed, so the

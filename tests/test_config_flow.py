@@ -1,7 +1,15 @@
 """Tests for the Cargus config and options flow."""
 
+from unittest.mock import AsyncMock, patch
+
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.cargus.account.auth import (
+    CargusAuthError,
+    CargusInvalidCredentials,
+    CargusTokens,
+)
+from custom_components.cargus.account.client import CargusAccountError
 from custom_components.cargus.config_flow import (
     normalize_tracking_code,
     valid_tracking_code,
@@ -36,23 +44,31 @@ def test_valid_tracking_code_needs_nine_or_ten_digits():
 
 
 async def test_user_flow_creates_hub_without_input(hass):
-    """No account, no postcode — the entry is created straight away."""
+    """No account, no postcode — the tracking hub is created straight away."""
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": "user"}
     )
+    assert result["type"] == "menu"
+    assert result["menu_options"] == ["account", "tracking"]
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"next_step_id": "tracking"}
+    )
     assert result["type"] == "create_entry"
     assert result["title"] == "Cargus"
+    assert result["data"] == {"source": "tracking"}
     assert result["options"][CONF_PARCELS] == []
 
 
-async def test_second_hub_rejected(hass):
+async def test_second_tracking_hub_rejected(hass):
     MockConfigEntry(domain=DOMAIN, unique_id=DOMAIN).add_to_hass(hass)
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": "user"}
     )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"next_step_id": "tracking"}
+    )
     assert result["type"] == "abort"
-    # single_config_entry in the manifest aborts before the flow runs.
-    assert result["reason"] == "single_instance_allowed"
+    assert result["reason"] == "already_configured"
 
 
 def _hub(parcels: list[dict]) -> MockConfigEntry:
@@ -175,3 +191,129 @@ async def test_options_changes_history_and_delivered(hass):
     assert result["data"][CONF_INCLUDE_HISTORY] is True
     assert result["data"][CONF_DELIVERED_FILTER_TYPE] == "parcels"
     assert result["data"][CONF_DELIVERED_FILTER_AMOUNT] == 5
+
+
+SIGN_IN = "custom_components.cargus.account.client.CargusAccountClient.async_sign_in"
+INBOX = "custom_components.cargus.account.client.CargusAccountClient.async_get_inbox"
+ACCOUNT_INPUT = {
+    "email": " User@Example.com ",
+    "password": "secret",
+    "phone": "07 1234 5678",
+}
+
+
+def _signed_in(client):
+    client._store(CargusTokens("a", "r", 1.0), "login")
+
+
+async def _account_form(hass):
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "user"}
+    )
+    return await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"next_step_id": "account"}
+    )
+
+
+async def test_account_flow_creates_the_entry(hass):
+    result = await _account_form(hass)
+    assert result["step_id"] == "account"
+    with (
+        patch(SIGN_IN, autospec=True, side_effect=_signed_in),
+        patch(INBOX, AsyncMock(return_value=[])),
+        patch("custom_components.cargus.async_setup_entry", return_value=True),
+    ):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], ACCOUNT_INPUT
+        )
+    assert result["type"] == "create_entry"
+    assert result["title"] == "Cargus (user@example.com)"
+    assert result["data"] == {
+        "source": "account",
+        "email": "user@example.com",
+        "password": "secret",
+        "phone": "0712345678",
+        "access_token": "a",
+        "refresh_token": "r",
+        "token_expires_at": 1.0,
+    }
+    assert result["result"].unique_id == "account:user@example.com"
+
+
+async def test_account_flow_rejects_a_short_phone(hass):
+    result = await _account_form(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {**ACCOUNT_INPUT, "phone": "0712"}
+    )
+    assert result["errors"] == {"phone": "invalid_phone"}
+
+
+async def test_account_flow_errors(hass):
+    cases = [
+        (CargusInvalidCredentials("no"), None, "invalid_auth"),
+        (CargusAuthError("down"), None, "cannot_connect"),
+        (None, CargusAccountError("x", status_code=400), "invalid_phone"),
+        (None, CargusAccountError("x", status_code=500), "cannot_connect"),
+    ]
+    for sign_in_error, inbox_error, expected in cases:
+        result = await _account_form(hass)
+        with (
+            patch(SIGN_IN, AsyncMock(side_effect=sign_in_error)),
+            patch(INBOX, AsyncMock(side_effect=inbox_error, return_value=[])),
+        ):
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"], ACCOUNT_INPUT
+            )
+        assert result["errors"] == {"base": expected}, expected
+        hass.config_entries.flow.async_abort(result["flow_id"])
+        # The password is never offered back as a suggested value.
+        for field in result["data_schema"].schema:
+            if field == "password":
+                assert not (field.description or {}).get("suggested_value")
+
+
+async def test_same_account_twice_is_rejected(hass):
+    MockConfigEntry(
+        domain=DOMAIN, unique_id="account:user@example.com", data={"source": "account"}
+    ).add_to_hass(hass)
+    result = await _account_form(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], ACCOUNT_INPUT
+    )
+    assert result["type"] == "abort"
+    assert result["reason"] == "already_configured"
+
+
+async def test_reauth_stores_the_new_password(hass):
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="account:user@example.com",
+        data={
+            "source": "account",
+            "email": "user@example.com",
+            "password": "old",
+            "phone": "0712345678",
+        },
+    )
+    entry.add_to_hass(hass)
+    result = await entry.start_reauth_flow(hass)
+    assert result["step_id"] == "reauth_confirm"
+
+    with patch(SIGN_IN, AsyncMock(side_effect=CargusInvalidCredentials("no"))):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"password": "still-wrong"}
+        )
+    assert result["errors"] == {"base": "invalid_auth"}
+
+    with (
+        patch(SIGN_IN, autospec=True, side_effect=_signed_in),
+        patch(INBOX, AsyncMock(return_value=[])),
+        patch("custom_components.cargus.async_setup_entry", return_value=True),
+    ):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"password": "new"}
+        )
+    assert result["type"] == "abort"
+    assert result["reason"] == "reauth_successful"
+    assert entry.data["password"] == "new"
+    assert entry.data["access_token"] == "a"

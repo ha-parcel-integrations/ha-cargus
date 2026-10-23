@@ -45,13 +45,56 @@ you act in one of these areas:
 
 ## Carrier-specific notes
 
-Code model, one source today: `tracking/` (a nine- or ten-digit AWB the user
-enters). The layout leaves room for an `account/` source beside it; the domain
-root holds only dispatch and shared HA presentation (`parcels.py` has the
-list helpers both sources would share).
+Two sources, picked from a menu at setup: `tracking/` (a nine- or ten-digit
+AWB the user enters) and `account/` (the MyCargus inbox of a signed-in user).
+The domain root holds only dispatch and shared HA presentation (`parcels.py`
+has the list helpers both sources share).
 
+- **`entry.data[CONF_SOURCE]` picks the source; a missing key is
+  `SOURCE_TRACKING`**, because every entry from before the account source is
+  a tracking hub. The tracking hub stays a singleton through its old unique
+  id (`DOMAIN`); account hubs are multi-entry (`account:<email>`). Do **not**
+  put `single_config_entry` back in the manifest.
+- **The account reuses the tracking trace for status and history.** The inbox
+  only supplies which AWBs belong to the account, their direction
+  (`isSender`) and the arrival times; each AWB is then traced exactly like a
+  tracking code, so one status map serves both sources.
+  `CargusAccountCoordinator` subclasses the tracking coordinator for its event
+  firing, refusal repair and tiers. An AWB the trace answers empty for takes
+  its status from the inbox row's summary. The account's detail view is only
+  probed once per direction and logged as a shape, for a future switch.
+- **Sign-in is a scripted B2C login with the stored password**, on its own
+  short-lived session (and the refresh too): B2C cookies must never land in
+  HA's shared jar (the PPL CZ failure). A still-valid access token is reused,
+  an expired one refreshed, a refused refresh falls back to a full sign-in;
+  only a rejected password raises `ConfigEntryAuthFailed`. Tokens persist in
+  `entry.data`. Session eviction against the app is untested.
+- **Two header variants carry the phone number** on signed-in calls; the
+  client starts with the web one and switches on a `400`/`403`, remembering
+  the winner. The web variant was accepted on the first real account.
+- **Delivery window (account only, an assumption).** The inbox's arrival
+  times are time-of-day strings, `00:00:00` meaning none. A window is put on
+  `date1` when given, otherwise on the newest scan's day for a parcel out with
+  the courier, and never on a delivered parcel. Each reading kind logs a
+  one-shot WARNING asking for a report; `delivery_window` sits in the
+  account's `PENDING_CAPABILITIES_BY_VARIANT` until a real one is seen.
+- **Capabilities are per source** (`CAPABILITIES_BY_VARIANT` /
+  `PENDING_CAPABILITIES_BY_VARIANT`, `"Tracking"`/`"Account"`, bpost's shape);
+  the flat names are aliases of the tracking variant.
+- **Account options reload** (`async_schedule_reload`, no update listener);
+  the tracking hub keeps its listener and live refresh. Services act on the
+  tracking hub only and are registered only by it.
+- **PII in the inbox row.** It names sender, receiver and destination. It sits
+  in `raw` like the rest of the record, so it travels with the parcel into
+  sensor attributes and bus events (raw is never trimmed in this suite);
+  only diagnostics replace it with its shape (keys and types), and they
+  redact the e-mail, password, phone and tokens from `entry.data`.
+- **A partial inbox fails the poll.** Every list type has to answer; one
+  failing list would otherwise drop its parcels and announce them as new
+  once it is back. Lasting failures warn once per kind, then log at debug.
 - **Requests carry per-request headers.** `tracking/headers.py` builds them
-  as a pure function of a message, so a future account source can reuse it.
+  as a pure function of a message; the account's app variant reuses it with
+  the phone number as the message.
   Never log the request headers.
 - **A refusal is never not-found.** `400`/`401`/`403`, or headers that cannot
   be built, raise `CargusGateError`: the coordinator raises the `request_refused`
@@ -69,33 +112,36 @@ list helpers both sources would share).
   would otherwise be polled forever); `delivered_at` is then the newest
   scan's time. Any other unmapped wording falls back to the newest mappable
   earlier event, then the summary, then `unknown`, with a one-shot WARNING.
-  `at_pickup_point`, `returning` and `problem` are unreachable until a wording
-  is seen. A parcel handed to a third party stays on its last warehouse scan;
-  no status is invented for long silences.
+  A failed attempt (`Consignee not home`, `Bad Address`, seen on a real
+  account) is `problem`, as Canada Post files its attempted delivery.
+  `at_pickup_point` and `returning` are unreachable until a wording is seen.
+  A parcel handed to a third party stays on its last warehouse scan; no
+  status is invented for long silences.
 - **Clock.** Event dates are offset-less wall clocks in `Europe/Bucharest`;
   scans sharing one millisecond keep wire order (stable sort), exact
   duplicates collapse.
-- **Fields that are `None` on purpose:** `planned_from`/`planned_to` (no ETA
-  in the reply), `weight`, `dimensions`, `sender`, `receiver`, and
-  `pickup_point` (pending a real pickup-point parcel, so it sits in
-  `PENDING_CAPABILITIES`). `pickup` is always `False`.
+- **Fields that are `None` on purpose:** `planned_from`/`planned_to` on a
+  tracking hub (no ETA in the reply; an account fills them, see above),
+  `weight`, `dimensions`, `sender`, `receiver`, and `pickup_point` (pending a
+  real pickup-point parcel, so it sits in `PENDING_CAPABILITIES`). `pickup`
+  is always `False`.
 - **PII in `raw`.** The reply carries a signer name and PIN and a sender
   reference. `raw` keeps the full reply; they are never surfaced in an entity
   or attribute. Diagnostics redact by key (`awbBarcode`, `confirmedBy`,
   `responseCode`, and the scan places `localityName`/`countyName`, since the
   last scan names the recipient's town) and keep the events and wordings so a
   report stays useful.
-- **No outgoing split, on purpose.** Cargus has a consumer-sending route
-  (SHIP & GO / locker drop-off), but the code model has no signal for
-  direction yet. A `direction` field will be added once a real sent parcel is
-  seen; until then every parcel is incoming.
+- **Outgoing comes from the account only.** The account inbox says which
+  side the user is on, so the account entry has the outgoing sensors and
+  events; a row without a readable direction is incoming with a one-shot
+  warning. The tracking hub has no direction signal and treats every parcel
+  as incoming; no sent parcel has been seen on an account yet.
 - **Pickup-point sensors.** Only `awaiting_pickup` exists. The
   `en_route_to_pickup_point` view is left out because `pickup` is never true
   before a parcel arrives (no destination is known in advance).
-- **Empty calendar, kept on purpose.** Cargus reports no expected delivery
-  time yet, so the calendar, `next_delivery` and `delivery_time_changed` stay
-  empty. The platform ships anyway so a delivery window can be filled in
-  later without adding an entity.
+- **Calendar.** The trace reports no expected delivery time, so on a
+  tracking hub the calendar, `next_delivery` and `delivery_time_changed` stay
+  empty; an account fills them from the inbox's delivery window.
 - **Tracking URL** uses the Romanian path; the English page misreports valid
   AWBs.
 
@@ -242,6 +288,8 @@ repo's own `CLAUDE.md` — not a generator flag.
 | `tracking/status.py`, `tracking/parcels.py` (status map, `normalize_parcel`, history — pure, no I/O) | **yes** |
 | `parcels.py` (sort, delivered filter, `parse_iso`) | no |
 | `tracking/coordinator.py` (fetch, cache, event firing, repair) | mostly not |
+| `account/auth.py`, `account/client.py`, `account/headers.py` (sign-in, token lifecycle, inbox calls, header variants) | **yes** |
+| `account/parcels.py`, `account/coordinator.py` (direction, delivery window, inbox polling over the tracking trace) | **yes** |
 | `config_flow.py` | partly (code validation; key/credential validation on `--auth byo-key`/`credentials`) |
 | `sensor.py` / `button.py` / `device_trigger.py` | no |
 | `device.py` (shared device-info helper) | no |

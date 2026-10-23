@@ -4,11 +4,46 @@
     "step": {
       "user": {
         "title": "Cargus instellen",
+        "description": "Log in op je MyCargus-account zodat de pakketten vanzelf gevonden worden, ook die je verstuurt, of volg pakketten zonder account via hun AWB.",
+        "menu_options": {
+          "account": "MyCargus-account",
+          "tracking": "Trackingcodes"
+        }
+      },
+      "account": {
+        "title": "Inloggen bij MyCargus",
+        "description": "Gebruik het e-mailadres en wachtwoord van je MyCargus-account en het telefoonnummer dat eraan gekoppeld is.",
+        "data": {
+          "email": "E-mailadres",
+          "password": "Wachtwoord",
+          "phone": "Telefoonnummer"
+        },
+        "data_description": {
+          "email": "Het e-mailadres waarmee je inlogt bij MyCargus.",
+          "password": "Je MyCargus-wachtwoord. Het wordt bewaard zodat de integratie opnieuw kan inloggen als de sessie afloopt.",
+          "phone": "Het telefoonnummer van je MyCargus-account, zoals in de app, bijvoorbeeld 07xxxxxxxx."
+        }
+      },
+      "tracking": {
+        "title": "Pakketten volgen via AWB",
         "description": "Cargus-tracking heeft geen account of postcode nodig — de hub wordt direct aangemaakt. Pakketten voeg je daarna toe via de integratie-opties of de service `cargus.track_parcel`."
+      },
+      "reauth_confirm": {
+        "title": "Opnieuw inloggen bij MyCargus",
+        "description": "MyCargus accepteert het wachtwoord voor {email} niet meer. Vul het huidige in.",
+        "data": {
+          "password": "Wachtwoord"
+        }
       }
     },
+    "error": {
+      "invalid_auth": "MyCargus accepteerde dit e-mailadres en wachtwoord niet.",
+      "invalid_phone": "MyCargus accepteerde dit telefoonnummer niet. Gebruik het nummer dat aan je account gekoppeld is.",
+      "cannot_connect": "MyCargus is niet bereikbaar. Probeer het later opnieuw."
+    },
     "abort": {
-      "already_configured": "Cargus is al ingesteld."
+      "already_configured": "Dit is al ingesteld.",
+      "reauth_successful": "Opnieuw ingelogd."
     }
   },
   "options": {
@@ -107,7 +142,9 @@
       "parcel_registered": "Een pakket is geregistreerd",
       "parcel_status_changed": "De status van een pakket is gewijzigd",
       "parcel_delivered": "Een pakket is bezorgd",
-      "parcel_delivery_time_changed": "De verwachte bezorgtijd van een pakket is gewijzigd"
+      "parcel_delivery_time_changed": "De verwachte bezorgtijd van een pakket is gewijzigd",
+      "outgoing_parcel_status_changed": "De status van een verstuurd pakket is gewijzigd",
+      "outgoing_parcel_delivered": "Een verstuurd pakket is bezorgd"
     }
   },
   "entity": {
@@ -142,6 +179,14 @@
       },
       "parcel": {
         "name": "Pakket {barcode}"
+      },
+      "outgoing_parcels": {
+        "name": "Uitgaande pakketten",
+        "unit_of_measurement": "pakketten"
+      },
+      "outgoing_delivered_parcels": {
+        "name": "Uitgaande bezorgde pakketten",
+        "unit_of_measurement": "pakketten"
       }
     }
   },

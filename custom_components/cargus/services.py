@@ -13,7 +13,13 @@ from homeassistant.helpers import config_validation as cv
 import voluptuous as vol
 
 from .config_flow import normalize_tracking_code, valid_tracking_code
-from .const import CONF_PARCELS, CONF_TRACKING_CODE, DOMAIN
+from .const import (
+    CONF_PARCELS,
+    CONF_SOURCE,
+    CONF_TRACKING_CODE,
+    DOMAIN,
+    SOURCE_TRACKING,
+)
 
 SERVICE_TRACK_PARCEL = "track_parcel"
 SERVICE_UNTRACK_PARCEL = "untrack_parcel"
@@ -23,8 +29,15 @@ _UNTRACK_SCHEMA = vol.Schema({vol.Required(CONF_TRACKING_CODE): cv.string})
 
 
 def _resolve_entry(hass: HomeAssistant):
-    """Return the single Cargus hub, or raise when it is not set up."""
-    entries = hass.config_entries.async_entries(DOMAIN)
+    """Return the Cargus tracking hub, or raise when it is not set up.
+
+    Account entries discover their parcels themselves and take no codes.
+    """
+    entries = [
+        entry
+        for entry in hass.config_entries.async_entries(DOMAIN)
+        if entry.data.get(CONF_SOURCE, SOURCE_TRACKING) == SOURCE_TRACKING
+    ]
     if not entries:
         raise ServiceValidationError("Cargus is not set up")
     return entries[0]
@@ -70,7 +83,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
 
 
 def async_unload_services(hass: HomeAssistant) -> None:
-    """Remove the Cargus services (single-entry integration, so on unload)."""
+    """Remove the Cargus services."""
     for service in (SERVICE_TRACK_PARCEL, SERVICE_UNTRACK_PARCEL):
         if hass.services.has_service(DOMAIN, service):
             hass.services.async_remove(DOMAIN, service)

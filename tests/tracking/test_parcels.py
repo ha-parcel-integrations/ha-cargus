@@ -4,8 +4,10 @@ import logging
 
 from custom_components.cargus.const import (
     CAPABILITIES,
+    CAPABILITIES_BY_VARIANT,
     KNOWN_CAPABILITIES,
     PENDING_CAPABILITIES,
+    PENDING_CAPABILITIES_BY_VARIANT,
     ParcelStatus,
 )
 from custom_components.cargus.tracking.parcels import (
@@ -53,6 +55,11 @@ def test_capabilities_are_known_values():
     assert CAPABILITIES <= KNOWN_CAPABILITIES
     assert PENDING_CAPABILITIES <= KNOWN_CAPABILITIES
     assert not CAPABILITIES & PENDING_CAPABILITIES
+    assert set(CAPABILITIES_BY_VARIANT) == set(PENDING_CAPABILITIES_BY_VARIANT)
+    for variant, populated in CAPABILITIES_BY_VARIANT.items():
+        pending = PENDING_CAPABILITIES_BY_VARIANT[variant]
+        assert populated | pending <= KNOWN_CAPABILITIES
+        assert not populated & pending
 
 
 def test_capabilities_match_what_normalize_parcel_returns():

@@ -5,6 +5,7 @@ import sys
 import pytest
 from pytest_homeassistant_custom_component.plugins import hass  # noqa: F401
 
+from custom_components.cargus.account import auth
 from custom_components.cargus.tracking import headers, status
 
 
@@ -22,6 +23,7 @@ def reset_one_shot_warnings():
     triggered that status code first.
     """
     status._unmapped_statuses_logged.clear()
+    auth._warned.clear()
 
 
 @pytest.fixture(autouse=True)

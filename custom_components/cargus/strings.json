@@ -4,11 +4,46 @@
     "step": {
       "user": {
         "title": "Set up Cargus",
+        "description": "Sign in to your MyCargus account to have its parcels found for you, sent ones included, or track parcels by their AWB without an account.",
+        "menu_options": {
+          "account": "MyCargus account",
+          "tracking": "Tracking codes"
+        }
+      },
+      "account": {
+        "title": "Sign in to MyCargus",
+        "description": "Use the e-mail address and password of your MyCargus account and the phone number linked to it.",
+        "data": {
+          "email": "E-mail address",
+          "password": "Password",
+          "phone": "Phone number"
+        },
+        "data_description": {
+          "email": "The e-mail address you sign in to MyCargus with.",
+          "password": "Your MyCargus password. It is stored so the integration can sign in again when its session ends.",
+          "phone": "The phone number on your MyCargus account, as shown in the app, for example 07xxxxxxxx."
+        }
+      },
+      "tracking": {
+        "title": "Track parcels by AWB",
         "description": "Cargus tracking needs no account or postal code — the hub is created right away. Add parcels afterwards via the integration options or the `cargus.track_parcel` service."
+      },
+      "reauth_confirm": {
+        "title": "Sign in to MyCargus again",
+        "description": "MyCargus no longer accepts the password for {email}. Enter the current one.",
+        "data": {
+          "password": "Password"
+        }
       }
     },
+    "error": {
+      "invalid_auth": "MyCargus did not accept this e-mail address and password.",
+      "invalid_phone": "MyCargus did not accept this phone number. Use the number linked to your account.",
+      "cannot_connect": "Could not reach MyCargus. Try again later."
+    },
     "abort": {
-      "already_configured": "Cargus is already set up."
+      "already_configured": "This is already set up.",
+      "reauth_successful": "Signed in again."
     }
   },
   "options": {
@@ -107,7 +142,9 @@
       "parcel_registered": "A parcel was registered",
       "parcel_status_changed": "A parcel's status changed",
       "parcel_delivered": "A parcel was delivered",
-      "parcel_delivery_time_changed": "A parcel's expected delivery time changed"
+      "parcel_delivery_time_changed": "A parcel's expected delivery time changed",
+      "outgoing_parcel_status_changed": "A sent parcel's status changed",
+      "outgoing_parcel_delivered": "A sent parcel was delivered"
     }
   },
   "entity": {
@@ -142,6 +179,14 @@
       },
       "parcel": {
         "name": "Parcel {barcode}"
+      },
+      "outgoing_parcels": {
+        "name": "Outgoing parcels",
+        "unit_of_measurement": "parcels"
+      },
+      "outgoing_delivered_parcels": {
+        "name": "Outgoing delivered parcels",
+        "unit_of_measurement": "parcels"
       }
     }
   },

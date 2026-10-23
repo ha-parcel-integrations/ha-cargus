@@ -14,18 +14,31 @@ from homeassistant.config_entries import (
 )
 from homeassistant.core import callback
 from homeassistant.helpers import selector
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 import voluptuous as vol
 
+from .account.auth import CargusAuthError, CargusInvalidCredentials, CargusTokens
+from .account.client import CargusAccountClient, CargusAccountError
+from .account.headers import normalize_phone
 from .const import (
+    CONF_ACCESS_TOKEN,
     CONF_DELIVERED_FILTER_AMOUNT,
     CONF_DELIVERED_FILTER_TYPE,
+    CONF_EMAIL,
     CONF_INCLUDE_HISTORY,
     CONF_PARCELS,
+    CONF_PASSWORD,
+    CONF_PHONE,
+    CONF_REFRESH_TOKEN,
+    CONF_SOURCE,
+    CONF_TOKEN_EXPIRES_AT,
     CONF_TRACKING_CODE,
     DEFAULT_DELIVERED_FILTER_AMOUNT,
     DEFAULT_DELIVERED_FILTER_TYPE,
     DEFAULT_INCLUDE_HISTORY,
     DOMAIN,
+    SOURCE_ACCOUNT,
+    SOURCE_TRACKING,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -78,25 +91,166 @@ class CargusConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Create the Cargus hub — single instance, no input needed.
+        """Let the user pick the MyCargus account or code tracking."""
+        return self.async_show_menu(
+            step_id="user", menu_options=[SOURCE_ACCOUNT, SOURCE_TRACKING]
+        )
+
+    async def async_step_tracking(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Create the tracking hub — one per install, no input needed.
 
         Tracking is keyed on the tracking code alone (no account, no postal
-        code), so there is nothing to ask at setup: the entry is created
-        straight away and parcels are added afterwards via the options flow,
-        the ``cargus.track_parcel`` service or a dashboard button.
-        ``single_config_entry`` in the manifest enforces one hub.
+        code), so there is nothing to ask: the entry is created straight away
+        and parcels are added afterwards via the options flow, the
+        ``cargus.track_parcel`` service or a dashboard button. The unique id
+        is the one the hub had before the account source existed.
         """
         await self.async_set_unique_id(DOMAIN)
         self._abort_if_unique_id_configured()
         return self.async_create_entry(
             title="Cargus",
-            data={},
+            data={CONF_SOURCE: SOURCE_TRACKING},
             options={
                 CONF_PARCELS: [],
                 CONF_DELIVERED_FILTER_TYPE: DEFAULT_DELIVERED_FILTER_TYPE,
                 CONF_DELIVERED_FILTER_AMOUNT: DEFAULT_DELIVERED_FILTER_AMOUNT,
                 CONF_INCLUDE_HISTORY: DEFAULT_INCLUDE_HISTORY,
             },
+        )
+
+    async def _async_check_account(
+        self, email: str, password: str, phone: str
+    ) -> tuple[dict[str, Any], str | None]:
+        """Sign in and read the inbox once; return the token data or an error key."""
+        captured: list[CargusTokens] = []
+        client = CargusAccountClient(
+            async_get_clientsession(self.hass),
+            email=email,
+            password=password,
+            phone=phone,
+            on_tokens=captured.append,
+        )
+        try:
+            await client.async_sign_in()
+            rows = await client.async_get_inbox()
+        except CargusInvalidCredentials:
+            return {}, "invalid_auth"
+        except CargusAuthError:
+            return {}, "cannot_connect"
+        except CargusAccountError as err:
+            if err.status_code in (400, 403):
+                return {}, "invalid_phone"
+            _LOGGER.warning("MyCargus inbox check failed: %s", err)
+            return {}, "cannot_connect"
+        _LOGGER.debug(
+            "MyCargus account checked: %s AWBs, headers=%s",
+            len(rows),
+            client.header_variant,
+        )
+        tokens = captured[-1]
+        return {
+            CONF_ACCESS_TOKEN: tokens.access_token,
+            CONF_REFRESH_TOKEN: tokens.refresh_token,
+            CONF_TOKEN_EXPIRES_AT: tokens.expires_at,
+        }, None
+
+    async def async_step_account(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Sign in to MyCargus; parcels are then discovered from the inbox."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            email = str(user_input[CONF_EMAIL]).strip().lower()
+            password = str(user_input[CONF_PASSWORD])
+            phone = normalize_phone(user_input[CONF_PHONE])
+            if len(phone.lstrip("+")) < 9:
+                errors[CONF_PHONE] = "invalid_phone"
+            else:
+                await self.async_set_unique_id(f"{SOURCE_ACCOUNT}:{email}")
+                self._abort_if_unique_id_configured()
+                tokens, error = await self._async_check_account(email, password, phone)
+                if error:
+                    errors["base"] = error
+                else:
+                    return self.async_create_entry(
+                        title=f"Cargus ({email})",
+                        data={
+                            CONF_SOURCE: SOURCE_ACCOUNT,
+                            CONF_EMAIL: email,
+                            CONF_PASSWORD: password,
+                            CONF_PHONE: phone,
+                            **tokens,
+                        },
+                        options={
+                            CONF_DELIVERED_FILTER_TYPE: DEFAULT_DELIVERED_FILTER_TYPE,
+                            CONF_DELIVERED_FILTER_AMOUNT: DEFAULT_DELIVERED_FILTER_AMOUNT,
+                            CONF_INCLUDE_HISTORY: DEFAULT_INCLUDE_HISTORY,
+                        },
+                    )
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_EMAIL): selector.TextSelector(
+                    selector.TextSelectorConfig(
+                        type=selector.TextSelectorType.EMAIL, autocomplete="username"
+                    )
+                ),
+                vol.Required(CONF_PASSWORD): selector.TextSelector(
+                    selector.TextSelectorConfig(
+                        type=selector.TextSelectorType.PASSWORD,
+                        autocomplete="current-password",
+                    )
+                ),
+                vol.Required(CONF_PHONE): selector.TextSelector(
+                    selector.TextSelectorConfig(type=selector.TextSelectorType.TEL)
+                ),
+            }
+        )
+        return self.async_show_form(
+            step_id=SOURCE_ACCOUNT,
+            data_schema=self.add_suggested_values_to_schema(
+                schema,
+                {k: v for k, v in (user_input or {}).items() if k != CONF_PASSWORD},
+            ),
+            errors=errors,
+        )
+
+    async def async_step_reauth(self, entry_data: dict[str, Any]) -> ConfigFlowResult:
+        """Ask for the password again; the account itself never changes."""
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Store the new password once it signs in."""
+        errors: dict[str, str] = {}
+        entry = self._get_reauth_entry()
+        if user_input is not None:
+            password = str(user_input[CONF_PASSWORD])
+            tokens, error = await self._async_check_account(
+                entry.data[CONF_EMAIL], password, entry.data[CONF_PHONE]
+            )
+            if error:
+                errors["base"] = error
+            else:
+                return self.async_update_reload_and_abort(
+                    entry, data_updates={CONF_PASSWORD: password, **tokens}
+                )
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_PASSWORD): selector.TextSelector(
+                        selector.TextSelectorConfig(
+                            type=selector.TextSelectorType.PASSWORD,
+                            autocomplete="current-password",
+                        )
+                    )
+                }
+            ),
+            description_placeholders={"email": entry.data[CONF_EMAIL]},
+            errors=errors,
         )
 
 
@@ -106,7 +260,13 @@ class CargusOptionsFlowHandler(OptionsFlow):
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Offer parcel management separately from integration settings."""
+        """Offer parcel management separately from integration settings.
+
+        An account entry has no parcel list to edit, so it goes straight to
+        its settings.
+        """
+        if self.config_entry.data.get(CONF_SOURCE) == SOURCE_ACCOUNT:
+            return await self.async_step_settings()
         return self.async_show_menu(
             step_id="init", menu_options=["parcels", "settings"]
         )
@@ -160,9 +320,15 @@ class CargusOptionsFlowHandler(OptionsFlow):
     ) -> ConfigFlowResult:
         """Show and handle the non-parcel integration settings."""
         if user_input is not None:
+            if self.config_entry.data.get(CONF_SOURCE) == SOURCE_ACCOUNT:
+                # No update listener on account entries; a reload applies it.
+                self.hass.config_entries.async_schedule_reload(
+                    self.config_entry.entry_id
+                )
             return self.async_create_entry(
                 title="",
                 data={
+                    **self.config_entry.options,
                     CONF_PARCELS: _current_parcels(self.config_entry),
                     CONF_DELIVERED_FILTER_TYPE: user_input[CONF_DELIVERED_FILTER_TYPE],
                     CONF_DELIVERED_FILTER_AMOUNT: int(

@@ -19,6 +19,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import CargusConfigEntry
+from .account.coordinator import CargusAccountCoordinator
 from .const import DOMAIN, ParcelStatus
 from .device import ATTRIBUTION, build_device_info
 from .parcels import parse_iso
@@ -29,6 +30,15 @@ _LOGGER = logging.getLogger(__name__)
 # The DataUpdateCoordinator handles fan-out to all entities; HA's per-entity
 # update throttling adds nothing here.
 PARALLEL_UPDATES = 0
+
+
+def _active_parcels(coordinator: CargusCoordinator) -> list[dict]:
+    """Every active parcel, both directions; only an account has outgoing ones."""
+    return list(coordinator.data or []) + list(getattr(coordinator, "outgoing", []))
+
+
+def _active_barcodes(coordinator: CargusCoordinator) -> set[str]:
+    return {p.get("barcode", "") for p in _active_parcels(coordinator)}
 
 
 async def async_setup_entry(
@@ -42,7 +52,7 @@ async def async_setup_entry(
     # than (too late) from this forwarded platform.
     coordinator = entry.runtime_data.coordinator
 
-    current_barcodes: set[str] = {p.get("barcode", "") for p in coordinator.data or []}
+    current_barcodes = _active_barcodes(coordinator)
     entry_id = entry.entry_id
 
     # Remove per-parcel sensors from the registry whose barcode is no longer
@@ -56,6 +66,8 @@ async def async_setup_entry(
         f"{entry_id}_awaiting_pickup",
         f"{entry_id}_delivered_parcels",
         f"{entry_id}_last_update",
+        f"{entry_id}_outgoing_parcels",
+        f"{entry_id}_outgoing_delivered_parcels",
     }
     for entity_entry in er.async_entries_for_config_entry(registry, entry_id):
         if (
@@ -74,12 +86,15 @@ async def async_setup_entry(
     ]
     entities.extend(
         CargusParcelSensor(coordinator, entry, parcel.get("barcode", ""))
-        for parcel in coordinator.data or []
+        for parcel in _active_parcels(coordinator)
     )
     entities.append(CargusNextDeliverySensor(coordinator, entry))
     entities.append(CargusAwaitingPickupSensor(coordinator, entry))
     entities.append(CargusDeliveredParcelsSensor(coordinator, entry))
     entities.append(CargusLastUpdateSensor(coordinator, entry))
+    if isinstance(coordinator, CargusAccountCoordinator):
+        entities.append(CargusOutgoingParcelsSensor(coordinator, entry))
+        entities.append(CargusOutgoingDeliveredSensor(coordinator, entry))
 
     async_add_entities(entities)
 
@@ -124,9 +139,7 @@ class CargusIncomingParcelsSensor(CoordinatorEntity[CargusCoordinator], SensorEn
         return {"parcels": self.coordinator.data or []}
 
     def _handle_coordinator_update(self) -> None:
-        current_barcodes: set[str] = {
-            p.get("barcode", "") for p in (self.coordinator.data or [])
-        }
+        current_barcodes = _active_barcodes(self.coordinator)
 
         new_barcodes = current_barcodes - self._known_barcodes
         if new_barcodes:
@@ -169,7 +182,7 @@ class CargusParcelSensor(CoordinatorEntity[CargusCoordinator], SensorEntity):
         self._attr_device_info = build_device_info(entry)
 
     def _get_parcel(self) -> dict[str, Any] | None:
-        for parcel in self.coordinator.data or []:
+        for parcel in _active_parcels(self.coordinator):
             if parcel.get("barcode") == self._barcode:
                 return parcel
         return None
@@ -234,8 +247,8 @@ class CargusNextDeliverySensor(CoordinatorEntity[CargusCoordinator], SensorEntit
         }
 
 
-class _CargusPickupListSensor(CoordinatorEntity[CargusCoordinator], SensorEntity):
-    """Base for the pickup-point summary view."""
+class _CargusListSensor(CoordinatorEntity[CargusCoordinator], SensorEntity):
+    """Base for a count-of-parcels summary sensor."""
 
     _attr_has_entity_name = True
     _attr_state_class = SensorStateClass.MEASUREMENT
@@ -260,7 +273,7 @@ class _CargusPickupListSensor(CoordinatorEntity[CargusCoordinator], SensorEntity
         raise NotImplementedError
 
 
-class CargusAwaitingPickupSensor(_CargusPickupListSensor):
+class CargusAwaitingPickupSensor(_CargusListSensor):
     """Active parcels that have arrived at a pickup point."""
 
     _attr_translation_key = "awaiting_pickup"
@@ -298,6 +311,26 @@ class CargusDeliveredParcelsSensor(CoordinatorEntity[CargusCoordinator], SensorE
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return the extra state attributes."""
         return {"parcels": self.coordinator.delivered}
+
+
+class CargusOutgoingParcelsSensor(_CargusListSensor):
+    """Active parcels the account holder sent."""
+
+    _attr_translation_key = "outgoing_parcels"
+    _suffix = "outgoing_parcels"
+
+    def _parcels(self) -> list[dict]:
+        return list(getattr(self.coordinator, "outgoing", []))
+
+
+class CargusOutgoingDeliveredSensor(_CargusListSensor):
+    """Recently delivered parcels the account holder sent."""
+
+    _attr_translation_key = "outgoing_delivered_parcels"
+    _suffix = "outgoing_delivered_parcels"
+
+    def _parcels(self) -> list[dict]:
+        return list(getattr(self.coordinator, "delivered_outgoing", []))
 
 
 class CargusLastUpdateSensor(CoordinatorEntity[CargusCoordinator], SensorEntity):
