@@ -44,11 +44,19 @@ def test_unreachable_statuses_stay_unmapped():
     """No wording has been seen for these, so none maps to them."""
     reachable = set(status._EVENT_MAP.values()) | set(status._SUMMARY_MAP.values())
     reachable |= {s for _, s in status._EVENT_PREFIXES}
-    assert not reachable & {
-        ParcelStatus.AT_PICKUP_POINT,
-        ParcelStatus.RETURNING,
-        ParcelStatus.PROBLEM,
-    }
+    assert not reachable & {ParcelStatus.AT_PICKUP_POINT, ParcelStatus.RETURNING}
+
+
+@pytest.mark.parametrize(
+    ("wording", "expected"),
+    [
+        ("Consignee not home", ParcelStatus.PROBLEM),
+        ("Bad Address", ParcelStatus.PROBLEM),
+        ("Consolidation scan (info non-existent in system)", ParcelStatus.IN_TRANSIT),
+    ],
+)
+def test_wordings_seen_on_a_real_account(wording, expected):
+    assert map_event_wording(wording) is expected
 
 
 def test_warning_is_one_shot_and_carries_the_issue_link(caplog):

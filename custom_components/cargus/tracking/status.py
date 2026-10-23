@@ -20,7 +20,11 @@ _EVENT_MAP: dict[str, ParcelStatus] = {
     "pickup shipment": ParcelStatus.IN_TRANSIT,
     "consolidation scan": ParcelStatus.IN_TRANSIT,
     "automatic parcel sorting": ParcelStatus.IN_TRANSIT,
+    "consolidation scan (info non-existent in system)": ParcelStatus.IN_TRANSIT,
     "with courier": ParcelStatus.OUT_FOR_DELIVERY,
+    # A failed attempt: the courier comes back, but someone has to act.
+    "consignee not home": ParcelStatus.PROBLEM,
+    "bad address": ParcelStatus.PROBLEM,
     "delivered": ParcelStatus.DELIVERED,
 }
 
