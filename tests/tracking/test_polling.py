@@ -6,7 +6,7 @@ full-stop condition, its resume, and the 429 backoff).
 """
 
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 from homeassistant.helpers.update_coordinator import UpdateFailed
 import pytest
@@ -228,3 +228,27 @@ async def test_429_backoff_grows_without_a_retry_after_header(hass):
 def test_tier_is_hot_when_planned_from_is_unreadable():
     parcels = [_out_for_delivery("not-a-date")]
     assert _hottest_tier_minutes(parcels, datetime.now(UTC)) == HOT_INTERVAL_MINUTES
+
+
+async def test_failed_poll_drops_the_overnight_interval(hass):
+    entry = _entry_with([])
+    entry.add_to_hass(hass)
+    client = AsyncMock()
+    coordinator = CargusCoordinator(hass, client, entry)
+    coordinator.update_interval = timedelta(hours=5, minutes=40)
+
+    noon = datetime(2026, 1, 15, 12, tzinfo=UTC)
+    with (
+        patch.object(coordinator, "_async_poll", side_effect=TimeoutError),
+        patch(
+            "custom_components.cargus.tracking.coordinator.dt_util.now",
+            return_value=noon,
+        ),
+        pytest.raises(TimeoutError),
+    ):
+        await coordinator._async_update_data()
+
+    assert coordinator.update_interval is not None
+    assert coordinator.update_interval <= timedelta(
+        minutes=MID_INTERVAL_MINUTES + STAGGER_MINUTES
+    )

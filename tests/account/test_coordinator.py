@@ -1,5 +1,6 @@
 """Tests for the account entry: setup, polling, events and diagnostics."""
 
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
 
 from homeassistant.config_entries import SOURCE_REAUTH, ConfigEntryState
@@ -22,7 +23,9 @@ from custom_components.cargus.const import (
     CONF_SOURCE,
     CONF_TOKEN_EXPIRES_AT,
     DOMAIN,
+    MID_INTERVAL_MINUTES,
     SOURCE_ACCOUNT,
+    STAGGER_MINUTES,
     ParcelStatus,
 )
 from custom_components.cargus.diagnostics import async_get_config_entry_diagnostics
@@ -312,3 +315,27 @@ async def test_diagnostics_hide_credentials_and_inbox_values(hass):
     inbox = diagnostics["incoming"][0]["raw"]["inbox"]
     assert inbox["awbBarCode"] == "str"
     assert diagnostics["outgoing"][0]["barcode"] == "**REDACTED**"
+
+
+async def test_failed_poll_drops_the_overnight_interval(hass):
+    entry = await _setup(hass, _entry())
+    coordinator = entry.runtime_data.coordinator
+    coordinator.update_interval = timedelta(hours=5, minutes=40)
+
+    noon = datetime(2026, 1, 15, 12, tzinfo=UTC)
+    with (
+        patch.object(coordinator, "_async_poll", side_effect=TimeoutError),
+        patch(
+            "custom_components.cargus.account.coordinator.dt_util.now",
+            return_value=noon,
+        ),
+        pytest.raises(TimeoutError),
+    ):
+        await coordinator._async_update_data()
+
+    assert coordinator.update_interval is not None
+    assert coordinator.update_interval <= timedelta(
+        minutes=MID_INTERVAL_MINUTES + STAGGER_MINUTES
+    )
+
+    assert await hass.config_entries.async_unload(entry.entry_id)

@@ -63,6 +63,21 @@ class CargusAccountCoordinator(CargusCoordinator):
         self.inbox_size = 0
 
     async def _async_update_data(self) -> list[dict]:
+        try:
+            return await self._async_poll()
+        except Exception:
+            # The base class keeps the last interval after a failure, which
+            # after an overnight poll is the whole quiet window.
+            now = dt_util.now()
+            self.update_interval = _next_update_interval(
+                now,
+                _hottest_tier_minutes((self.data or []) + self.outgoing, now)
+                or MID_INTERVAL_MINUTES,
+                self.config_entry.entry_id,
+            )
+            raise
+
+    async def _async_poll(self) -> list[dict]:
         """Read the inbox, trace each AWB, split by direction and publish."""
         try:
             rows = await self.account_client.async_get_inbox()
