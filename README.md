@@ -130,6 +130,7 @@ Standard HA removal applies: **Settings → Devices & Services → Cargus → �
 | `sensor.cargus_next_delivery` | Earliest expected delivery; only an account can fill it |
 | `sensor.cargus_awaiting_pickup` | Parcels waiting at a pickup point (stays empty until Cargus reports one) |
 | `sensor.cargus_delivered_parcels` | Recently delivered parcels (see the retention option) |
+| `calendar.cargus_deliveries` | Read-only calendar of expected deliveries, no extra API calls |
 | `sensor.cargus_last_successful_update` | Diagnostic: when Cargus was last polled successfully |
 | `sensor.cargus_outgoing_parcels` | Account only: parcels you sent that are still on their way |
 | `sensor.cargus_outgoing_delivered_parcels` | Account only: recently delivered parcels you sent |
