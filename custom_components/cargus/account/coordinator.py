@@ -114,26 +114,26 @@ class CargusAccountCoordinator(CargusCoordinator):
             for parcel in incoming + outgoing
             if parcel["delivered"] and parcel["barcode"] in self._raw_cache
         }
-        self.delivered = apply_delivered_filter(
-            sort_parcels_by_ts(
-                [p for p in incoming if p["delivered"]], "delivered_at", descending=True
-            ),
-            self.config_entry,
+        delivered_sorted = sort_parcels_by_ts(
+            [p for p in incoming if p["delivered"]], "delivered_at", descending=True
         )
+        self.delivered = apply_delivered_filter(delivered_sorted, self.config_entry)
         active = sort_parcels_by_ts(
             [p for p in incoming if not p["delivered"]], "planned_from"
         )
         self.outgoing = sort_parcels_by_ts(
             [p for p in outgoing if not p["delivered"]], "planned_from"
         )
+        delivered_outgoing_sorted = sort_parcels_by_ts(
+            [p for p in outgoing if p["delivered"]], "delivered_at", descending=True
+        )
         self.delivered_outgoing = apply_delivered_filter(
-            sort_parcels_by_ts(
-                [p for p in outgoing if p["delivered"]], "delivered_at", descending=True
-            ),
-            self.config_entry,
+            delivered_outgoing_sorted, self.config_entry
         )
 
-        combined_in = active + self.delivered
+        # Events and remembered state cover every parcel; the retention option
+        # only limits what the delivered sensor shows.
+        combined_in = active + delivered_sorted
         self._fire_change_events(combined_in)
         self._known_state = _status_map(combined_in)
         self._known_delivery_times = {
@@ -141,7 +141,7 @@ class CargusAccountCoordinator(CargusCoordinator):
             for p in combined_in
             if p.get("barcode")
         }
-        combined_out = self.outgoing + self.delivered_outgoing
+        combined_out = self.outgoing + delivered_outgoing_sorted
         self._fire_outgoing_change_events(combined_out)
         self._known_outgoing_state = _status_map(combined_out)
 

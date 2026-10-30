@@ -16,6 +16,8 @@ from custom_components.cargus.account.client import (
 )
 from custom_components.cargus.const import (
     CONF_ACCESS_TOKEN,
+    CONF_DELIVERED_FILTER_AMOUNT,
+    CONF_DELIVERED_FILTER_TYPE,
     CONF_EMAIL,
     CONF_PASSWORD,
     CONF_PHONE,
@@ -339,3 +341,48 @@ async def test_failed_poll_drops_the_overnight_interval(hass):
     )
 
     assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_a_parcel_the_delivered_list_leaves_out_still_fires_delivered(hass):
+    """The retention option limits the delivered sensor, never the events."""
+    other = "1000000404"
+    entry = _entry()
+    entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        entry,
+        options={
+            CONF_DELIVERED_FILTER_TYPE: "parcels",
+            CONF_DELIVERED_FILTER_AMOUNT: 1,
+        },
+    )
+    rows = [inbox_row(IN_AWB, isSender=False), inbox_row(other, isSender=False)]
+    in_transit = _traces(
+        **{other: trace(other, ("2026-10-22T10:00:00", "Consolidation scan"))}
+    )
+    with (
+        patch(INBOX, AsyncMock(return_value=rows)),
+        patch(FULL, AsyncMock(return_value={"events": []})),
+        patch(TRACE, side_effect=in_transit),
+    ):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+    coordinator = entry.runtime_data.coordinator
+    delivered = []
+    hass.bus.async_listen(
+        "cargus_parcel_delivered", lambda event: delivered.append(event)
+    )
+
+    done = _traces(
+        **{
+            IN_AWB: trace(IN_AWB, ("2026-10-23T08:00:00", "Delivered")),
+            other: trace(other, ("2026-10-24T08:00:00", "Delivered")),
+        }
+    )
+    with patch(INBOX, AsyncMock(return_value=rows)), patch(TRACE, side_effect=done):
+        await coordinator.async_refresh()
+        await hass.async_block_till_done()
+
+    assert sorted(event.data["barcode"] for event in delivered) == sorted(
+        [IN_AWB, other]
+    )
+    assert [parcel["barcode"] for parcel in coordinator.delivered] == [other]
