@@ -100,7 +100,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: CargusConfigEntry) -> bo
         # disappear immediately. This is also the resume path after polling
         # fully suspended: adding a parcel back triggers this refresh, which
         # recomputes the tier and re-arms scheduling. The account options flow
-        # reloads on submit instead, so it registers no listener.
+        # is an OptionsFlowWithReload instead, so it registers no listener.
         entry.async_on_unload(entry.add_update_listener(_async_options_updated))
         async_setup_services(hass)
 

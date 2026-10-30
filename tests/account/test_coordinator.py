@@ -283,6 +283,7 @@ async def test_window_reaches_the_calendar_sensor(hass):
 
 async def test_settings_change_reloads_the_account(hass):
     entry = await _setup(hass, _entry())
+    seen = []
     result = await hass.config_entries.options.async_init(entry.entry_id)
     assert result["type"] == "form"
     assert result["step_id"] == "settings"
@@ -290,7 +291,11 @@ async def test_settings_change_reloads_the_account(hass):
         patch(INBOX, AsyncMock(return_value=_rows())),
         patch(FULL, AsyncMock(return_value={})),
         patch(TRACE, side_effect=_traces()),
-        patch.object(hass.config_entries, "async_schedule_reload") as reload,
+        patch.object(
+            hass.config_entries,
+            "async_schedule_reload",
+            side_effect=lambda entry_id: seen.append(dict(entry.options)),
+        ),
     ):
         result = await hass.config_entries.options.async_configure(
             result["flow_id"],
@@ -301,7 +306,8 @@ async def test_settings_change_reloads_the_account(hass):
             },
         )
     assert result["type"] == "create_entry"
-    reload.assert_called_once_with(entry.entry_id)
+    # The reload must see the saved options, not the ones from before the form.
+    assert seen == [result["data"]]
     assert entry.options["include_history"] is True
 
 

@@ -10,7 +10,7 @@ from homeassistant.config_entries import (
     ConfigEntry,
     ConfigFlow,
     ConfigFlowResult,
-    OptionsFlow,
+    OptionsFlowWithReload,
 )
 from homeassistant.core import callback
 from homeassistant.helpers import selector
@@ -254,7 +254,7 @@ class CargusConfigFlow(ConfigFlow, domain=DOMAIN):
         )
 
 
-class CargusOptionsFlowHandler(OptionsFlow):
+class CargusOptionsFlowHandler(OptionsFlowWithReload):
     """Manage tracked parcels separately from integration settings."""
 
     async def async_step_init(
@@ -265,6 +265,12 @@ class CargusOptionsFlowHandler(OptionsFlow):
         An account entry has no parcel list to edit, so it goes straight to
         its settings.
         """
+        # A tracking entry applies options through its update listener, which
+        # may not be combined with the automatic reload; an account entry has
+        # none and reloads once the new options are saved.
+        self.automatic_reload = (
+            self.config_entry.data.get(CONF_SOURCE) == SOURCE_ACCOUNT
+        )
         if self.config_entry.data.get(CONF_SOURCE) == SOURCE_ACCOUNT:
             return await self.async_step_settings()
         return self.async_show_menu(
@@ -320,11 +326,6 @@ class CargusOptionsFlowHandler(OptionsFlow):
     ) -> ConfigFlowResult:
         """Show and handle the non-parcel integration settings."""
         if user_input is not None:
-            if self.config_entry.data.get(CONF_SOURCE) == SOURCE_ACCOUNT:
-                # No update listener on account entries; a reload applies it.
-                self.hass.config_entries.async_schedule_reload(
-                    self.config_entry.entry_id
-                )
             return self.async_create_entry(
                 title="",
                 data={

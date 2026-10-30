@@ -81,8 +81,9 @@ has the list helpers both sources share).
 - **Capabilities are per source** (`CAPABILITIES_BY_VARIANT` /
   `PENDING_CAPABILITIES_BY_VARIANT`, `"Tracking"`/`"Account"`, bpost's shape);
   the flat names are aliases of the tracking variant.
-- **Account options reload** (`async_schedule_reload`, no update listener);
-  the tracking hub keeps its listener and live refresh. Services act on the
+- **Account options reload** (`OptionsFlowWithReload`, no update listener);
+  the tracking hub keeps its listener and live refresh, so its flow sets
+  `automatic_reload = False`. Services act on the
   tracking hub only and are registered only by it.
 - **PII in the inbox row.** It names sender, receiver and destination. It sits
   in `raw` like the rest of the record, so it travels with the parcel into
@@ -158,9 +159,11 @@ decisions. Changes apply without a restart. Two models, **do not mix them**:
   changes live: an update listener calls `async_request_refresh()`, so
   added/removed parcel sensors appear immediately (this is also the resume
   path after polling has fully suspended — see "Dynamic polling" below).
-- **Account-based carriers** call `async_schedule_reload` on submit and register
-  **no** update listener. Combining a listener with a reload-on-update flow is
-  deprecated, an error in HA 2026.12+.
+- **Account-based carriers** make the options flow an `OptionsFlowWithReload`
+  and register **no** update listener (the two may not be combined). Never call
+  `async_schedule_reload` from the submit instead: that reload starts before the
+  new options are saved, so anything read from `entry.options` at setup keeps
+  the old value.
 
 ## Auth models
 

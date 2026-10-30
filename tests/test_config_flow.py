@@ -317,3 +317,18 @@ async def test_reauth_stores_the_new_password(hass):
     assert result["reason"] == "reauth_successful"
     assert entry.data["password"] == "new"
     assert entry.data["access_token"] == "a"
+
+
+async def test_tracking_options_apply_through_the_listener_not_a_reload(hass):
+    """A tracking entry keeps its update listener, so no automatic reload."""
+    entry = _hub([])
+    entry.add_to_hass(hass)
+    entry.add_update_listener(AsyncMock())
+    result = await _open_options_step(hass, entry, "settings")
+    with patch.object(hass.config_entries, "async_schedule_reload") as reload:
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], _settings_input()
+        )
+
+    assert result["type"] == "create_entry"
+    reload.assert_not_called()
