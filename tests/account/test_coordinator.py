@@ -176,10 +176,11 @@ async def test_status_changes_fire_events_per_direction(hass):
     ):
         hass.bus.async_listen(name, lambda event: events.append(event))
 
+    delivered_at = (datetime.now(UTC) - timedelta(hours=1)).replace(microsecond=0)
     later = _traces(
         **{
             IN_AWB: trace(IN_AWB, ("2026-10-23T08:00:00", "With courier")),
-            OUT_AWB: trace(OUT_AWB, ("2026-10-23T12:00:00", "Delivered")),
+            OUT_AWB: trace(OUT_AWB, (delivered_at.isoformat(), "Delivered")),
         }
     )
     with (
