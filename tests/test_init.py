@@ -141,3 +141,32 @@ async def test_options_update_applies_live_without_reload(hass):
 
     incoming = hass.states.get("sensor.cargus_incoming_parcels")
     assert incoming.state == "2"
+
+
+async def test_pickup_sensors_registered_and_not_swept(hass):
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=DOMAIN,
+        options={CONF_PARCELS: [{CONF_TRACKING_CODE: ACTIVE_CODE}]},
+    )
+    entry.add_to_hass(hass)
+    registry = er.async_get(hass)
+    restored = registry.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        f"{entry.entry_id}_awaiting_pickup",
+        config_entry=entry,
+    )
+
+    with patch(
+        "custom_components.cargus.tracking.api.CargusApiClient.async_get_parcel",
+        new=AsyncMock(return_value=_sample()),
+    ):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert registry.async_get(restored.entity_id) is not None
+    assert hass.states.get(restored.entity_id).state == "0"
+    assert registry.async_get_entity_id(
+        "sensor", DOMAIN, f"{entry.entry_id}_en_route_to_pickup_point"
+    )

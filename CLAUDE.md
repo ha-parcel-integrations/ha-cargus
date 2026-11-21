@@ -35,10 +35,11 @@ you act in one of these areas:
   summary+diagnostic sensors. Add a new non-parcel sensor's unique_id to the set.
 - **Per-parcel sensors are removed by the summary sensor** via
   `entity_registry.async_remove` (self-removal races and leaves ghosts).
-- **The optional pickup-point summaries are a pair.** A carrier that can tell
-  a parcel is destined for a pickup point exposes
-  `en_route_to_pickup_point` for `pickup is true` before it arrives; one that
-  can reach `ParcelStatus.AT_PICKUP_POINT` also exposes `awaiting_pickup`.
+- **The pickup-point summaries are a pair.** A carrier that can deliver to a
+  pickup point or locker exposes both `en_route_to_pickup_point` and
+  `awaiting_pickup`, even before a real parcel has shown the status or flag
+  (they read 0 until then; record it in `PENDING_*`). A carrier without pickup
+  points exposes neither and keeps `pickup` constantly False.
   See *Parcel contract* in `CONVENTIONS.md`. Say "pickup point", not
   "ServicePoint"/"parcel shop"/"locker", for the generic concept; the
   example carrier demonstrates both canonical sensors.
@@ -75,7 +76,9 @@ has the list helpers both sources share).
 - **Delivery window (account only, an assumption).** The inbox's arrival
   times are time-of-day strings, `00:00:00` meaning none. A window is put on
   `date1` when given, otherwise on the newest scan's day for a parcel out with
-  the courier, and never on a delivered parcel. Each reading kind logs a
+  the courier, and never on a parcel that is delivered, returning or at a
+  pickup point. A lone time is one moment and runs to 23:59:59 that day
+  (Bucharest); a window with both times keeps both. Each reading kind logs a
   one-shot WARNING asking for a report; `delivery_window` sits in the
   account's `PENDING_CAPABILITIES_BY_VARIANT` until a real one is seen.
 - **Capabilities are per source** (`CAPABILITIES_BY_VARIANT` /
@@ -115,7 +118,8 @@ has the list helpers both sources share).
   earlier event, then the summary, then `unknown`, with a one-shot WARNING.
   A failed attempt (`Consignee not home`, `Bad Address`, seen on a real
   account) is `problem`, as Canada Post files its attempted delivery.
-  `at_pickup_point` and `returning` are unreachable until a wording is seen.
+  `at_pickup_point` and `returning` are unreachable until a wording is seen
+  (pending; the pickup sensors read 0 meanwhile).
   A parcel handed to a third party stays on its last warehouse scan; no
   status is invented for long silences.
 - **Clock.** Event dates are offset-less wall clocks in `Europe/Bucharest`;
@@ -125,7 +129,7 @@ has the list helpers both sources share).
   tracking hub (no ETA in the reply; an account fills them, see above),
   `weight`, `dimensions`, `sender`, `receiver`, and `pickup_point` (pending a
   real pickup-point parcel, so it sits in `PENDING_CAPABILITIES`). `pickup`
-  is always `False`.
+  is `False` until an event maps to `at_pickup_point`.
 - **PII in `raw`.** The reply carries a signer name and PIN and a sender
   reference. `raw` keeps the full reply; they are never surfaced in an entity
   or attribute. Diagnostics redact by key (`awbBarcode`, `confirmedBy`,
@@ -137,9 +141,17 @@ has the list helpers both sources share).
   events; a row without a readable direction is incoming with a one-shot
   warning. The tracking hub has no direction signal and treats every parcel
   as incoming; no sent parcel has been seen on an account yet.
-- **Pickup-point sensors.** Only `awaiting_pickup` exists. The
-  `en_route_to_pickup_point` view is left out because `pickup` is never true
-  before a parcel arrives (no destination is known in advance).
+- **Pickup point.** Cargus has pickup points, but no field in a reply says
+  a parcel is headed for one, and no wording for arrival has been seen.
+  `pickup` therefore comes from `is_pickup` on the event statuses alone (so it
+  turns true, and stays true after collection, once a wording maps to
+  `at_pickup_point`), and `pickup_point` stays `None` because Cargus names no
+  point. Both `en_route_to_pickup_point` and `awaiting_pickup` are always
+  exposed. `awaiting_pickup` reads 0 until a wording maps to `at_pickup_point`
+  (none is mapped yet, pending), and `en_route_to_pickup_point` reads 0 until
+  a parcel reports `pickup`, which only follows that same arrival wording.
+  `pickup_point` is already in the `PENDING_*` capabilities. Both sensors'
+  unique_ids are in the setup sweep's `non_parcel_unique_ids`.
 - **Calendar.** The trace reports no expected delivery time, so on a
   tracking hub the calendar, `next_delivery` and `delivery_time_changed` stay
   empty; an account fills them from the inbox's delivery window.
@@ -224,7 +236,7 @@ sensors (their unique_ids belong in `non_parcel_unique_ids`); per-parcel
 sensors spawned for **both** directions; the
 `<domain>_outgoing_parcel_status_changed` / `_outgoing_parcel_delivered`
 event pair, with **no** `registered` and no delivery-time event for outgoing;
-`awaiting_pickup`, `next_delivery` and the calendar staying incoming-only;
+`next_delivery` and the calendar staying incoming-only;
 and both new lists in `diagnostics.py`. The aggregator needs no change — it
 buckets on the sensor suffix and the event prefix. Also set
 `directions: incoming+outgoing` for the carrier in the docs site's

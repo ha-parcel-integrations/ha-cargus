@@ -273,13 +273,13 @@ async def test_full_awb_is_probed_once_per_direction(hass):
 async def test_window_reaches_the_calendar_sensor(hass):
     row = inbox_row(IN_AWB, arrivingTimeFrom="10:00:00", arrivingTimeTo="14:00:00")
     out_today = _traces(
-        **{IN_AWB: trace(IN_AWB, ("2026-10-23T08:00:00", "With courier"))}
+        **{IN_AWB: trace(IN_AWB, ("2099-07-23T08:00:00", "With courier"))}
     )
     entry = await _setup(hass, _entry(), rows=[row], traces=out_today)
     parcel = entry.runtime_data.coordinator.data[0]
-    assert parcel["planned_from"] == "2026-10-23T10:00:00+03:00"
+    assert parcel["planned_from"] == "2099-07-23T10:00:00+03:00"
     state = hass.states.get("sensor.cargus_user_example_com_next_delivery")
-    assert state.state.startswith("2026-10-23T07:00:00")
+    assert state.state.startswith("2099-07-23T07:00:00")
 
 
 async def test_settings_change_reloads_the_account(hass):

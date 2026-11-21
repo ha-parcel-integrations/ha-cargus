@@ -120,10 +120,22 @@ def test_window_uses_date1_when_given():
     )
     parcel = _parcel(row, ("2026-10-23T08:15:00", "Consolidation scan"))
     assert parcel["planned_from"] == "2026-10-25T09:00:00+02:00"
-    assert parcel["planned_to"] is None
+    assert parcel["planned_to"] == "2026-10-25T23:59:59+02:00"
 
 
-def test_window_end_before_start_is_dropped():
+def test_a_lone_end_time_is_one_moment():
+    row = inbox_row(
+        AWB,
+        date1="2026-10-25T00:00:00",
+        arrivingTimeFrom="00:00:00",
+        arrivingTimeTo="14:00",
+    )
+    parcel = _parcel(row)
+    assert parcel["planned_from"] == "2026-10-25T14:00:00+02:00"
+    assert parcel["planned_to"] == "2026-10-25T23:59:59+02:00"
+
+
+def test_window_end_before_start_is_swapped():
     row = inbox_row(
         AWB,
         date1="2026-10-25T00:00:00",
@@ -131,8 +143,8 @@ def test_window_end_before_start_is_dropped():
         arrivingTimeTo="09:00",
     )
     parcel = _parcel(row)
-    assert parcel["planned_from"] == "2026-10-25T15:00:00+02:00"
-    assert parcel["planned_to"] is None
+    assert parcel["planned_from"] == "2026-10-25T09:00:00+02:00"
+    assert parcel["planned_to"] == "2026-10-25T15:00:00+02:00"
 
 
 def test_midnight_times_mean_no_window():
@@ -166,3 +178,17 @@ def test_unreadable_time_is_dropped_with_a_warning(caplog):
     parcel = _parcel(row, ("2026-10-23T08:15:00", "With courier"))
     assert parcel["planned_from"] is None
     assert "unreadable time" in caplog.text
+
+
+def test_no_window_while_returning_or_at_a_pickup_point(monkeypatch):
+    row = inbox_row(
+        AWB,
+        date1="2026-10-25T00:00:00",
+        arrivingTimeFrom="09:00",
+        arrivingTimeTo="12:00",
+    )
+    parcel = _parcel(row, ("2026-10-23T08:15:00", "Consolidation scan"))
+    assert delivery_window(row, parcel)[0] is not None
+    for status in (ParcelStatus.RETURNING, ParcelStatus.AT_PICKUP_POINT):
+        parcel["status"] = status
+        assert delivery_window(row, parcel) == (None, None)

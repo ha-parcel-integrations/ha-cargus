@@ -127,8 +127,7 @@ Standard HA removal applies: **Settings → Devices & Services → Cargus → �
 |---|---|
 | `sensor.cargus_incoming_parcels` | Number of active tracked parcels, full list under the `parcels` attribute |
 | `sensor.cargus_parcel_<code>` | One per tracked parcel; state is the canonical status, attributes carry the full normalised parcel |
-| `sensor.cargus_next_delivery` | Earliest expected delivery; only an account can fill it |
-| `sensor.cargus_awaiting_pickup` | Parcels waiting at a pickup point (stays empty until Cargus reports one) |
+| `sensor.cargus_next_delivery` | Earliest expected delivery whose window has not passed; only an account can fill it |
 | `sensor.cargus_delivered_parcels` | Recently delivered parcels (see the retention option) |
 | `calendar.cargus_deliveries` | Read-only calendar of expected deliveries, no extra API calls |
 | `sensor.cargus_last_successful_update` | Diagnostic: when Cargus was last polled successfully |
@@ -150,7 +149,7 @@ The `status` field is the carrier-agnostic enum shared by the whole integration 
 | `problem` | A delivery attempt failed (nobody home, address not found) |
 | `unknown` | Not found yet, or a wording we have not mapped yet |
 
-`at_pickup_point` and `returning` are not reported yet: Cargus has not been seen using a wording for them.
+`at_pickup_point` and `returning` are not reported yet: Cargus has not been seen using a wording for them, so the Awaiting pickup and En route to pickup point sensors read 0 until one is seen. `pickup` is `false` until a parcel reaches a pickup point, and `pickup_point` stays empty because Cargus names none.
 
 The carrier's own human-readable text is always available as `raw_status`.
 

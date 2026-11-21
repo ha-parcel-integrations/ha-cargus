@@ -13,6 +13,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from ..const import ParcelStatus
+from ..parcels import planned_for_status, planned_window
 from ..tracking.parcels import normalize_parcel, parse_wall_clock
 from .client import awb_of
 
@@ -106,9 +107,11 @@ def delivery_window(row: dict[str, Any], parcel: dict) -> tuple[str | None, str 
     """``planned_from``/``planned_to`` from the inbox's arrival times.
 
     The times carry no date and read ``00:00:00`` when Cargus has no window,
-    so a window needs both a non-midnight time and a day to put it on.
+    so a window needs a non-midnight time and a day to put it on. A lone time
+    is one moment and runs to the end of that day.
     """
-    if parcel["delivered"]:
+    status = parcel["status"]
+    if planned_for_status(status, "", "") == (None, None):
         return None, None
     raw_from, raw_to = row.get("arrivingTimeFrom"), row.get("arrivingTimeTo")
     start, end = _clock(raw_from), _clock(raw_to)
@@ -122,17 +125,11 @@ def delivery_window(row: dict[str, Any], parcel: dict) -> tuple[str | None, str 
         _note_window("has times but no day to put them on", row)
         return None, None
     _note_window("read for the first time", row)
-    planned_from = (
-        datetime.combine(day, start, _CLOCK).isoformat()
-        if start not in (None, _NO_TIME)
-        else None
+    return planned_window(
+        None if start in (None, _NO_TIME) else datetime.combine(day, start, _CLOCK),
+        None if end in (None, _NO_TIME) else datetime.combine(day, end, _CLOCK),
+        zone=_CLOCK,
     )
-    planned_to = (
-        datetime.combine(day, end, _CLOCK).isoformat()
-        if end not in (None, _NO_TIME) and (start is None or end > start)
-        else None
-    )
-    return planned_from, planned_to
 
 
 def normalize_account_parcel(

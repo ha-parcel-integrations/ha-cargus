@@ -7,6 +7,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from ..const import HISTORY_MAX_EVENTS, TRACKING_URL, ParcelStatus
+from ..parcels import is_pickup
 from .status import map_event_wording, map_summary_wording, warn_unmapped_status
 
 _CLOCK = ZoneInfo("Europe/Bucharest")
@@ -131,6 +132,11 @@ def normalize_parcel(raw: dict[str, Any], *, include_history: bool = False) -> d
     tracking_code = raw.get("awbBarcode")
     status = derive_status(raw)
     delivered = status is ParcelStatus.DELIVERED
+    pickup = is_pickup(
+        None,
+        status,
+        (map_event_wording(event.get("event")) for _, event in _ordered_events(raw)),
+    )
     return {
         "carrier": "Cargus",
         "barcode": tracking_code,
@@ -142,7 +148,7 @@ def normalize_parcel(raw: dict[str, Any], *, include_history: bool = False) -> d
         "delivered_at": _delivered_at(raw) if delivered else None,
         "planned_from": None,
         "planned_to": None,
-        "pickup": False,
+        "pickup": pickup,
         "pickup_point": None,
         "url": tracking_url(tracking_code),
         "weight": None,
