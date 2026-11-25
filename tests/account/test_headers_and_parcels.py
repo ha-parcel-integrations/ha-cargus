@@ -192,3 +192,32 @@ def test_no_window_while_returning_or_at_a_pickup_point(monkeypatch):
     for status in (ParcelStatus.RETURNING, ParcelStatus.AT_PICKUP_POINT):
         parcel["status"] = status
         assert delivery_window(row, parcel) == (None, None)
+
+
+def test_account_parcel_keys_and_order():
+    parcel = normalize_account_parcel(
+        inbox_row(AWB),
+        trace(AWB, ("2026-10-23T08:15:00", "Consolidation scan")),
+        include_history=False,
+    )
+    assert list(parcel) == [
+        "carrier",
+        "barcode",
+        "sender",
+        "receiver",
+        "contents",
+        "status",
+        "raw_status",
+        "delivered",
+        "delivered_at",
+        "planned_from",
+        "planned_to",
+        "pickup",
+        "pickup_point",
+        "url",
+        "weight",
+        "dimensions",
+        "history",
+        "raw",
+    ]
+    assert parcel["contents"] is None

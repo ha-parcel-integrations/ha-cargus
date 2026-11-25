@@ -21,6 +21,7 @@ from homeassistant.helpers.update_coordinator import UpdateFailed
 from homeassistant.util import dt as dt_util
 
 from ..const import DOMAIN, MID_INTERVAL_MINUTES, ParcelStatus
+from ..contents import normalize_code
 from ..parcels import apply_delivered_filter, sort_parcels_by_ts
 from ..tracking.api import CargusApiClient, CargusApiError, CargusGateError
 from ..tracking.coordinator import (
@@ -61,6 +62,9 @@ class CargusAccountCoordinator(CargusCoordinator):
         self._known_outgoing_state: dict[str, ParcelStatus] | None = None
         self._full_awb_probed: set[bool] = set()
         self.inbox_size = 0
+
+    def _published_parcels(self) -> list[dict]:
+        return [*super()._published_parcels(), *self.outgoing, *self.delivered_outgoing]
 
     async def _async_update_data(self) -> list[dict]:
         try:
@@ -104,11 +108,16 @@ class CargusAccountCoordinator(CargusCoordinator):
         incoming: list[dict] = []
         outgoing: list[dict] = []
         for row, trace in zip(rows, traces, strict=True):
-            parcel = normalize_account_parcel(
-                row, trace, include_history=include_history
+            parcel = self._apply_contents(
+                normalize_account_parcel(row, trace, include_history=include_history)
             )
             (outgoing if is_outgoing(row) else incoming).append(parcel)
 
+        self.known_codes = frozenset(
+            normalize_code(value)
+            for value in (*awbs, *(p.get("barcode") for p in incoming + outgoing))
+            if value
+        )
         self._delivered_codes = {
             parcel["barcode"]
             for parcel in incoming + outgoing

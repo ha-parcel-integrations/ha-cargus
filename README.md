@@ -172,10 +172,13 @@ Every payload is the full normalised parcel plus the hub's `device_id`. Events a
 
 | Service | Fields | Description |
 |---|---|---|
-| `cargus.track_parcel` | `tracking_code` | Start tracking a parcel |
+| `cargus.track_parcel` | `tracking_code`, `contents` (optional) | Start tracking a parcel, optionally noting what is in it |
 | `cargus.untrack_parcel` | `tracking_code` | Stop tracking a parcel |
+| `cargus.update_contents` | `tracking_code`, `contents`, `config_entry_id` (optional) | Set what is in a parcel, tracked or not; an empty `contents` clears it. It goes to every account or hub that lists the code; name one with `config_entry_id` (needed for a code none lists yet). |
 
-Both act on the tracking-codes hub; an account finds its parcels itself.
+`track_parcel` and `untrack_parcel` act on the tracking-codes hub only; an account finds its parcels itself. `update_contents` works with any set-up entry.
+
+The `contents` text you set titles the parcel's calendar event and shows on the next-delivery sensor.
 
 ## Examples
 

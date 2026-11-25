@@ -25,6 +25,7 @@ from .const import (
     SOURCE_ACCOUNT,
     SOURCE_TRACKING,
 )
+from .contents import ContentsStore
 from .services import async_setup_services, async_unload_services
 from .tracking.api import CargusApiClient
 from .tracking.coordinator import CargusCoordinator
@@ -88,6 +89,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: CargusConfigEntry) -> bo
     # cleanly (it logs a warning and half-sets-up the entry); doing the first
     # refresh here lets a transient failure fail the whole entry so HA retries
     # it with backoff.
+    await coordinator.contents_store.async_load()
     await coordinator.async_config_entry_first_refresh()
 
     entry.runtime_data = CargusData(client=client, coordinator=coordinator)
@@ -102,7 +104,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: CargusConfigEntry) -> bo
         # recomputes the tier and re-arms scheduling. The account options flow
         # is an OptionsFlowWithReload instead, so it registers no listener.
         entry.async_on_unload(entry.add_update_listener(_async_options_updated))
-        async_setup_services(hass)
+
+    async_setup_services(hass, hub=not is_account)
 
     return True
 
@@ -116,12 +119,21 @@ async def async_unload_entry(hass: HomeAssistant, entry: CargusConfigEntry) -> b
     """Unload the Cargus config entry."""
     if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         return False
-    # The services act on the tracking hub, so they go with the last one.
-    if entry.data.get(CONF_SOURCE, SOURCE_TRACKING) == SOURCE_TRACKING and not any(
-        other.entry_id != entry.entry_id
-        and other.state is ConfigEntryState.LOADED
-        and other.data.get(CONF_SOURCE, SOURCE_TRACKING) == SOURCE_TRACKING
+    # Drop a service when the last entry that needs it goes, so unloading one
+    # entry never breaks the others.
+    others = [
+        other
         for other in hass.config_entries.async_entries(DOMAIN)
-    ):
-        async_unload_services(hass)
+        if other.entry_id != entry.entry_id and other.state is ConfigEntryState.LOADED
+    ]
+    hubs_left = any(
+        other.data.get(CONF_SOURCE, SOURCE_TRACKING) == SOURCE_TRACKING
+        for other in others
+    )
+    async_unload_services(hass, hubs_left=hubs_left, entries_left=bool(others))
     return True
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: CargusConfigEntry) -> None:
+    """Delete the entry's stored contents."""
+    await ContentsStore(hass, entry.entry_id).async_remove()

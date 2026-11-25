@@ -326,6 +326,17 @@ async def test_diagnostics_hide_credentials_and_inbox_values(hass):
     assert diagnostics["outgoing"][0]["barcode"] == "**REDACTED**"
 
 
+async def test_account_diagnostics_redact_the_contents(hass):
+    entry = await _setup(hass, _entry())
+    coordinator = entry.runtime_data.coordinator
+    coordinator.contents_store.async_set(IN_AWB, "Running shoes")
+    coordinator.contents_store.async_set(OUT_AWB, "Socks")
+    coordinator.async_reapply_contents()
+    diagnostics = await async_get_config_entry_diagnostics(hass, entry)
+    assert diagnostics["incoming"][0]["contents"] == "**REDACTED**"
+    assert diagnostics["outgoing"][0]["contents"] == "**REDACTED**"
+
+
 async def test_failed_poll_drops_the_overnight_interval(hass):
     entry = await _setup(hass, _entry())
     coordinator = entry.runtime_data.coordinator

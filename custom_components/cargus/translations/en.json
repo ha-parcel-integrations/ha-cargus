@@ -123,6 +123,10 @@
         "tracking_code": {
           "name": "Tracking code",
           "description": "The Cargus tracking code."
+        },
+        "contents": {
+          "name": "Contents",
+          "description": "What is in the parcel, in your own words. Calling this again for a tracked parcel replaces it; an empty text clears it."
         }
       }
     },
@@ -133,6 +137,24 @@
         "tracking_code": {
           "name": "Tracking code",
           "description": "The Cargus tracking code to stop tracking."
+        }
+      }
+    },
+    "update_contents": {
+      "name": "Update parcel contents",
+      "description": "Set what is in a parcel, in your own words, for a tracking code. An empty text clears it.",
+      "fields": {
+        "tracking_code": {
+          "name": "Tracking code",
+          "description": "The Cargus tracking code."
+        },
+        "contents": {
+          "name": "Contents",
+          "description": "What is in the parcel, in your own words. An empty text clears it."
+        },
+        "config_entry_id": {
+          "name": "Account",
+          "description": "The account to store this for. Needed when no account lists the code yet."
         }
       }
     }
@@ -198,6 +220,11 @@
     "request_refused": {
       "title": "Cargus is not accepting requests",
       "description": "Cargus refused the tracking requests, so parcel data can no longer be refreshed. The integration may need an update; check for a new release and report it if none is available. Parcels keep their last known status in the meantime."
+    }
+  },
+  "exceptions": {
+    "update_contents_entry_required": {
+      "message": "No account lists this code. Choose the account to store it for."
     }
   }
 }
